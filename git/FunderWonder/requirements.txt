@@ -1,5 +1,6 @@
 fastapi
 uvicorn
+gunicorn
 langchain
 langchain-google-genai
 langchain-community
@@ -8,3 +9,5 @@ langchainhub
 tavily-python
 requests
 python-dotenv
+google-auth-oauthlib
+google-api-python-client
