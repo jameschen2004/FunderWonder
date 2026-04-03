@@ -8,9 +8,9 @@ from pydantic import BaseModel
 from typing import List, Dict
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.agents.agent import AgentExecutor
+from langchain.agents import AgentExecutor
 from langchain.agents.react.agent import create_react_agent
-from langchain_core.tools import tool
+from langchain.tools import tool
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain import hub
 
