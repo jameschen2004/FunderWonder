@@ -1,18 +1,17 @@
 import os
-import json
 import requests
-from fastapi import FastAPI, Request, responses
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Dict
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.agents import AgentExecutor
-from langchain.agents.react.agent import create_react_agent
+from langchain.agents import create_react_agent, AgentExecutor
 from langchain.tools import tool
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain import hub
+
 
 os.environ["GOOGLE_API_KEY"] = os.environ.get("GOOGLE_API_KEY", "")
 os.environ["TAVILY_API_KEY"] = os.environ.get("TAVILY_API_KEY", "")
