@@ -108,17 +108,39 @@ async def auth_google():
         scopes=SCOPES,
         redirect_uri="https://funderwonder-43cc.onrender.com/callback"
     )
-    authorization_url, _ = flow.authorization_url(access_type='offline', include_granted_scopes='true')
-    return responses.RedirectResponse(authorization_url)
+    
+    # This generates the URL, the state, and the PKCE code_verifier
+    authorization_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true')
+    
+    response = responses.RedirectResponse(authorization_url)
+    
+    # Save the state and code_verifier in secure cookies so the callback route can access them
+    response.set_cookie(key="oauth_state", value=state, httponly=True, secure=True)
+    if hasattr(flow, 'code_verifier'):
+        response.set_cookie(key="code_verifier", value=flow.code_verifier, httponly=True, secure=True)
+        
+    return response
 
 @app.get("/callback")
 async def callback(request: Request):
     client_config = json.loads(GCP_JSON)
+    
+    # Retrieve the state we saved in the cookie
+    saved_state = request.cookies.get("oauth_state")
+    
     flow = Flow.from_client_config(
         client_config,
         scopes=SCOPES,
+        state=saved_state,
         redirect_uri="https://funderwonder-43cc.onrender.com/callback"
     )
+    
+    # Retrieve the code_verifier from the cookie and inject it into the new flow
+    code_verifier = request.cookies.get("code_verifier")
+    if code_verifier:
+        flow.code_verifier = code_verifier
+        
+    # Now fetch the token (Google will be happy because we provided the verifier!)
     flow.fetch_token(authorization_response=str(request.url))
     creds = flow.credentials
     
