@@ -13,7 +13,8 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import create_tool_calling_agent
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain.tools import tool
@@ -112,6 +113,7 @@ Workflow:
      
 Whenever you find grants, you MUST append them to the very bottom of your response in this EXACT format for the UI:
 ID: [id] | Number: [number] | Title: [title]"""),
+    MessagesPlaceholder(variable_name="chat_history"),
     ("human", "{input}"),
     ("placeholder", "{agent_scratchpad}"),
 ])
@@ -197,13 +199,25 @@ async def callback(request: Request):
 @app.post("/chat")
 def chat(req: ChatRequest):
     try:
-        last_user_msg = next((m["content"] for m in reversed(req.history) if m["role"] in ["user", "human"]), "")
-        history_str = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in req.history[:-1]])
-        full_input = f"{history_str}\nHUMAN: {last_user_msg}" if history_str else last_user_msg
+        # Convert JSON history to LangChain objects
+        history_objs = []
+        for m in req.history[:-1]:
+            if m["role"] in ["user", "human"]:
+                history_objs.append(HumanMessage(content=m["content"]))
+            else:
+                history_objs.append(AIMessage(content=m["content"]))
 
-        response = executor.invoke({"input": full_input})
+        # Get the very last message as the current input
+        last_user_msg = req.history[-1]["content"]
+
+        # Pass the history objects directly to the executor
+        response = executor.invoke({
+            "input": last_user_msg,
+            "chat_history": history_objs
+        })
         return {"response": response.get("output", "I couldn't process that.")}
     except Exception as e:
+        print(f"Error: {e}") # Log for debugging
         return {"error": str(e)}
 
 class ExportRequest(BaseModel):
