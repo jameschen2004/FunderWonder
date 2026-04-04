@@ -15,8 +15,8 @@ from google.oauth2.credentials import Credentials
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.agents import create_tool_calling_agent
-from langchain.agents import create_react_agent, AgentExecutor
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain.agents import create_agent
 from langchain.tools import tool
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain import hub
@@ -115,7 +115,7 @@ Whenever you find grants, you MUST append them to the very bottom of your respon
 ID: [id] | Number: [number] | Title: [title]"""),
     MessagesPlaceholder(variable_name="chat_history"),
     ("human", "{input}"),
-    ("placeholder", "{agent_scratchpad}"),
+    MessagesPlaceholder(variable_name="agent_scratchpad"),
 ])
 
 tools = [
@@ -125,9 +125,8 @@ tools = [
     generate_and_save_proposal
 ]
 
-# Use the native tool-calling agent
-agent = create_tool_calling_agent(llm, tools, prompt)
-executor = AgentExecutor(agent=agent, tools=tools, verbose=False)
+agent_runnable = create_tool_calling_agent(llm, tools, prompt)
+agent_executor = AgentExecutor(agent=agent_runnable, tools=tools, verbose=True)
 
 app = FastAPI()
 
@@ -199,25 +198,26 @@ async def callback(request: Request):
 @app.post("/chat")
 def chat(req: ChatRequest):
     try:
-        # Convert JSON history to LangChain objects
         history_objs = []
+        # Process history (all but the last message)
         for m in req.history[:-1]:
             if m["role"] in ["user", "human"]:
                 history_objs.append(HumanMessage(content=m["content"]))
             else:
                 history_objs.append(AIMessage(content=m["content"]))
 
-        # Get the very last message as the current input
-        last_user_msg = req.history[-1]["content"]
+        # Get the actual current input from the last message in history
+        current_input = req.history[-1]["content"]
 
-        # Pass the history objects directly to the executor
-        response = executor.invoke({
-            "input": last_user_msg,
+        # Call the agent_executor (NOT 'executor' or 'agent.invoke')
+        result = agent_executor.invoke({
+            "input": current_input,
             "chat_history": history_objs
         })
-        return {"response": response.get("output", "I couldn't process that.")}
+        
+        return {"response": result.get("output", "I couldn't process that.")}
     except Exception as e:
-        print(f"Error: {e}") # Log for debugging
+        print(f"Chat Error: {e}")
         return {"error": str(e)}
 
 class ExportRequest(BaseModel):
