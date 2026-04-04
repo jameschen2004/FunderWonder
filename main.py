@@ -33,9 +33,9 @@ HEADERS = {
 
 SCOPES = ['https://www.googleapis.com/auth/documents', 'https://www.googleapis.com/auth/drive.file']
 
-@tool
+@tool("search_grants")
 def search_grants(keywords: str) -> str:
-    """Searches Grants.gov for open and forecasted grants."""
+    """Search for open and forecasted grants on Grants.gov using keywords."""
     url = "https://api.grants.gov/v1/api/search2"
     payload = {"keyword": keywords, "oppStatuses": "posted", "rows": 10}
     try:
@@ -50,9 +50,9 @@ def search_grants(keywords: str) -> str:
     except Exception as e:
         return f"Error searching grants: {str(e)}"
 
-@tool
+@tool("get_grant_details")
 def get_grant_details(opportunity_id: str) -> str:
-    """Fetches full description/synopsis for a specific grant ID."""
+    """Fetch the full description and eligibility details for a specific grant ID."""
     clean_id = str(opportunity_id).replace("ID:", "").strip()
     url = "https://api.grants.gov/v1/api/fetchOpportunity"
     try:
@@ -70,34 +70,34 @@ def get_grant_details(opportunity_id: str) -> str:
     except Exception as e:
         return f"Error fetching details: {str(e)}"
 
-@tool
+@tool("score_grant_match")
 def score_grant_match(input_query: str) -> str:
-    """Calculates a FunderWonder Match Score (0-100). Provide the user profile, needs, and grant description in the input."""
+    """Calculate a match score (0-100) by comparing a user profile to a grant description."""
     scoring_prompt = f"Evaluate this grant match based on this information: {input_query}"
     return llm.invoke(scoring_prompt).content
 
-@tool
+@tool("generate_and_save_proposal")
 def generate_and_save_proposal(input_query: str) -> str:
-    """Generates a full grant proposal draft. Provide the user profile, project description, and grant details in the input."""
+    """Draft a full professional grant proposal for a specific grant and user profile."""
     proposal_prompt = f"Write a professional grant proposal based on this information: {input_query}"
     proposal = llm.invoke(proposal_prompt).content
     return f"PROPOSAL_START\n{proposal}\nPROPOSAL_END"
 
+# Fix: Re-initialize the tools list with the named tools
 tools = [search_grants, get_grant_details, score_grant_match, generate_and_save_proposal]
-# Create a strong system prompt to enforce tool usage
+
+# Create a strong system prompt
 prompt = ChatPromptTemplate.from_messages([
-    ("system", """You are FunderWonder, an expert grant-finding AI assistant. You have access to real-time tools. 
-You MUST use the `search_grants` tool to find grants. 
+    ("system", """You are FunderWonder, an expert grant-finding AI assistant.
+You MUST use the search_grants tool to find real-time data. 
 
-Whenever you find grants, you MUST append them to the very bottom of your response in this EXACT format, with each grant on a new line:
-ID: [id] | Number: [number] | Title: [title]
-
-Do not change this format, as the frontend system relies on it to update the sidebar UI."""),
+Whenever you find grants, you MUST append them to the very bottom of your response in this EXACT format for the UI:
+ID: [id] | Number: [number] | Title: [title]"""),
     ("human", "{input}"),
     ("placeholder", "{agent_scratchpad}"),
 ])
 
-# Use the native tool-calling agent instead of the ReAct agent
+# Use the native tool-calling agent
 agent = create_tool_calling_agent(llm, tools, prompt)
 executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
