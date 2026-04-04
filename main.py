@@ -12,7 +12,8 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain.agents import create_tool_calling_agent
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain.tools import tool
@@ -33,9 +34,7 @@ HEADERS = {
 
 SCOPES = ['https://www.googleapis.com/auth/documents', 'https://www.googleapis.com/auth/drive.file']
 
-# --- TOOLS ---
-
-@tool
+@tool("search_grants")
 def search_grants(keywords: str) -> str:
     """Search for open and forecasted grants on Grants.gov using keywords."""
     url = "https://api.grants.gov/v1/api/search2"
@@ -52,7 +51,7 @@ def search_grants(keywords: str) -> str:
     except Exception as e:
         return f"Error searching grants: {str(e)}"
 
-@tool
+@tool("get_grant_details")
 def get_grant_details(opportunity_id: str) -> str:
     """Fetch the full description and eligibility details for a specific grant ID."""
     clean_id = str(opportunity_id).replace("ID:", "").strip()
@@ -72,38 +71,42 @@ def get_grant_details(opportunity_id: str) -> str:
     except Exception as e:
         return f"Error fetching details: {str(e)}"
 
-@tool
+@tool("score_grant_match")
 def score_grant_match(input_query: str) -> str:
     """Calculate a match score (0-100) by comparing a user profile to a grant description."""
     scoring_prompt = f"Evaluate this grant match based on this information: {input_query}"
     return llm.invoke(scoring_prompt).content
 
-@tool
+@tool("generate_and_save_proposal")
 def generate_and_save_proposal(input_query: str) -> str:
     """Draft a full professional grant proposal for a specific grant and user profile."""
     proposal_prompt = f"Write a professional grant proposal based on this information: {input_query}"
     proposal = llm.invoke(proposal_prompt).content
     return f"PROPOSAL_START\n{proposal}\nPROPOSAL_END"
 
-# --- AGENT SETUP ---
-
+# Fix: Re-initialize the tools list with the named tools
 tools = [search_grants, get_grant_details, score_grant_match, generate_and_save_proposal]
 
-# We bind the tools directly to the LLM for Gemini 2.0 compatibility
-llm_with_tools = llm.bind_tools(tools)
-
+# Create a comprehensive system prompt
 prompt = ChatPromptTemplate.from_messages([
-    ("system", """You are FunderWonder, an expert grant-finding AI assistant.
-You MUST use the search_grants tool to find real-time data. 
+    ("system", """You are FunderWonder, a premier AI-driven grant strategist. Your mission is to assist researchers and students in navigating the complex landscape of funding opportunities.
 
-Whenever you find grants, you MUST append them to the very bottom of your response in this EXACT format for the UI:
+OPERATIONAL PROTOCOLS:
+1. SEARCH: Use `search_grants` to identify opportunities. Always verify keywords with the user's research description.
+2. ANALYZE: For any grant of interest, use `get_grant_details` to retrieve eligibility and synopsis data.
+3. SCORE: Use `score_grant_match` to provide a quantitative alignment analysis (0-100) between the user's profile and the grant requirements. Provide a brief justification for the score.
+4. DRAFT: Only use `generate_and_save_proposal` when a user confirms they want a full draft for a specific grant ID.
+
+FORMATTING:
+When listing search results, you MUST append them to the end of your response in this EXACT format for the UI:
 ID: [id] | Number: [number] | Title: [title]"""),
+    MessagesPlaceholder(variable_name="chat_history"),
     ("human", "{input}"),
     ("placeholder", "{agent_scratchpad}"),
 ])
 
-# Define the agent with the bound LLM
-agent = create_tool_calling_agent(llm_with_tools, tools, prompt)
+# Re-initialize the agent and executor
+agent = create_tool_calling_agent(llm, tools, prompt)
 executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
 
 app = FastAPI()
@@ -176,13 +179,27 @@ async def callback(request: Request):
 @app.post("/chat")
 def chat(req: ChatRequest):
     try:
-        last_user_msg = next((m["content"] for m in reversed(req.history) if m["role"] in ["user", "human"]), "")
-        history_str = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in req.history[:-1]])
-        full_input = f"{history_str}\nHUMAN: {last_user_msg}" if history_str else last_user_msg
+        # Convert simple list of dicts into proper LangChain message objects
+        lc_history = []
+        # We take all messages except the very last one to use as context
+        for m in req.history[:-1]:
+            if m["role"] in ["user", "human"]:
+                lc_history.append(HumanMessage(content=m["content"]))
+            else:
+                lc_history.append(AIMessage(content=m["content"]))
+        
+        # The last message in the history is the current user input
+        last_user_msg = req.history[-1]["content"]
 
-        response = executor.invoke({"input": full_input})
+        # Pass the structured history and the new input to the executor
+        response = executor.invoke({
+            "input": last_user_msg,
+            "chat_history": lc_history
+        })
+        
         return {"response": response.get("output", "I couldn't process that.")}
     except Exception as e:
+        print(f"Chat Error: {str(e)}") # Log for Render debugging
         return {"error": str(e)}
 
 class ExportRequest(BaseModel):
