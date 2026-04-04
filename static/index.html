@@ -674,7 +674,8 @@ async function callAgent(text) {
           if (data.url) {
             addMessage('agent', `✅ Successfully exported! <br><br> <a href="${data.url}" target="_blank">📄 Open your Google Doc</a>`, true);
           } else {
-            addSysMsg("⚠️ Error exporting to Google Docs.");
+            console.error("Export Error:", data.error); 
+            addSysMsg("⚠️ Error: " + (data.error || "Unknown export error."));
           }
         });
       } else {
