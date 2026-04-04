@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Dict
 from google_auth_oauthlib.flow import Flow
-from google.auth.transport.requests import Request
+from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
@@ -219,7 +219,7 @@ def export_to_docs(req: ExportRequest):
 
         if not creds.valid:
             if creds.expired and creds.refresh_token:
-                creds.refresh(Request())
+                creds.refresh(GoogleRequest())
 
         docs_service = build('docs', 'v1', credentials=creds)
 
