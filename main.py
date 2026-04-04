@@ -105,7 +105,7 @@ async def auth_google():
     flow = Flow.from_client_config(
         client_config,
         scopes=SCOPES,
-        redirect_uri="https://funderwonder.onrender.com/callback"
+        redirect_uri="https://funderwonder-43cc.onrender.com/callback"
     )
     authorization_url, _ = flow.authorization_url(access_type='offline', include_granted_scopes='true')
     return responses.RedirectResponse(authorization_url)
@@ -116,7 +116,7 @@ async def callback(request: Request):
     flow = Flow.from_client_config(
         client_config,
         scopes=SCOPES,
-        redirect_uri="https://funderwonder.onrender.com/callback"
+        redirect_uri="https://funderwonder-43cc.onrender.com/callback"
     )
     flow.fetch_token(authorization_response=str(request.url))
     creds = flow.credentials
