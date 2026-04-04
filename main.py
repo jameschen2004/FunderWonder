@@ -8,6 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Dict
 from google_auth_oauthlib.flow import Flow
+from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.agents import create_react_agent, AgentExecutor
@@ -67,16 +69,15 @@ def get_grant_details(opportunity_id: str) -> str:
         return f"Error fetching details: {str(e)}"
 
 @tool
-def score_grant_match(grant_description: str, user_profile: str, project_needs: str) -> str:
-    """Calculates a FunderWonder Match Score (0-100)."""
-    scoring_prompt = f"Evaluate this grant match for profile: {user_profile} and needs: {project_needs}. Grant: {grant_description}"
+def score_grant_match(input_query: str) -> str:
+    """Calculates a FunderWonder Match Score (0-100). Provide the user profile, needs, and grant description in the input."""
+    scoring_prompt = f"Evaluate this grant match based on this information: {input_query}"
     return llm.invoke(scoring_prompt).content
 
 @tool
-def generate_and_save_proposal(opportunity_id: str, user_profile: str, project_description: str) -> str:
-    """Generates a full grant proposal draft. Google Docs export is handled via the frontend token."""
-    grant_details = get_grant_details.invoke(opportunity_id)
-    proposal_prompt = f"Write a professional grant proposal for: {user_profile}. Project: {project_description}. Grant: {grant_details}"
+def generate_and_save_proposal(input_query: str) -> str:
+    """Generates a full grant proposal draft. Provide the user profile, project description, and grant details in the input."""
+    proposal_prompt = f"Write a professional grant proposal based on this information: {input_query}"
     proposal = llm.invoke(proposal_prompt).content
     return f"PROPOSAL_START\n{proposal}\nPROPOSAL_END"
 
@@ -139,6 +140,31 @@ def chat(req: ChatRequest):
 
         response = executor.invoke({"input": full_input})
         return {"response": response.get("output", "I couldn't process that.")}
+    except Exception as e:
+        return {"error": str(e)}
+
+class ExportRequest(BaseModel):
+    token_json: str
+    proposal_text: str
+
+@app.post("/export-to-docs")
+def export_to_docs(req: ExportRequest):
+    try:
+        # Load the user's saved Google credentials
+        creds_data = json.loads(req.token_json)
+        creds = Credentials.from_authorized_user_info(creds_data, SCOPES)
+        docs_service = build('docs', 'v1', credentials=creds)
+
+        # Create a blank document
+        doc = docs_service.documents().create(body={'title': 'FunderWonder Grant Proposal'}).execute()
+        document_id = doc.get('documentId')
+
+        # Insert the AI-generated proposal text into the document
+        requests = [{'insertText': {'location': {'index': 1}, 'text': req.proposal_text}}]
+        docs_service.documents().batchUpdate(documentId=document_id, body={'requests': requests}).execute()
+
+        # Return the clickable URL
+        return {"url": f"https://docs.google.com/document/d/{document_id}/edit"}
     except Exception as e:
         return {"error": str(e)}
 

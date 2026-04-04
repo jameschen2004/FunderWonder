@@ -485,6 +485,10 @@
             <div class="upload-label">Drop a file or click to browse</div>
             <div class="upload-name" id="upload-name" style="display:none"></div>
           </div>
+          <div class="form-group" style="margin-top: 16px; margin-bottom:24px; text-align: center;">
+            <a href="/auth/google" class="btn-primary" id="google-auth-btn" style="text-decoration: none;">Connect Google Docs 📄</a>
+            <div id="google-auth-status" style="display: none; color: var(--green-light); font-size: 0.85rem; margin-top: 8px;">✓ Connected to Google Docs</div>
+          </div>
         </div>
 
         <button class="btn-primary" id="submit-profile-btn" onclick="submitProfile()">
@@ -519,6 +523,14 @@
 </main>
 
 <script>
+
+window.onload = function() {
+  if (localStorage.getItem('gdocs_token')) {
+    document.getElementById('google-auth-btn').style.display = 'none';
+    document.getElementById('google-auth-status').style.display = 'block';
+  }
+};
+
 // ── State ──
 let currentStep  = 1;
 let userProfile  = {};
@@ -641,10 +653,42 @@ async function callAgent(text) {
 
     removeTyping(typingId);
 
-    const cleanReply = stripGrantLines(reply);
+    let displayReply = reply;
+
+    // Check if the AI generated a proposal
+    if (reply.includes("PROPOSAL_START")) {
+      const proposalText = reply.split("PROPOSAL_START")[1].split("PROPOSAL_END")[0].trim();
+      const token = localStorage.getItem('gdocs_token');
+      
+      if (token) {
+        addSysMsg("⏳ Exporting your proposal to Google Docs...");
+        
+        // Call the backend to create the Doc
+        fetch(apiBase() + '/export-to-docs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token_json: token, proposal_text: proposalText })
+        })
+        .then(r => r.json())
+        .then(data => {
+          if (data.url) {
+            addMessage('agent', `✅ Successfully exported! <br><br> <a href="${data.url}" target="_blank">📄 Open your Google Doc</a>`, true);
+          } else {
+            addSysMsg("⚠️ Error exporting to Google Docs.");
+          }
+        });
+      } else {
+        addSysMsg("⚠️ Google Docs not connected. You can copy the text above manually.");
+      }
+      
+      // Remove the tags so it looks clean in the chat
+      displayReply = reply.replace("PROPOSAL_START", "").replace("PROPOSAL_END", "").trim();
+    }
+
+    const cleanReply = stripGrantLines(displayReply);
     addMessage('agent', renderAgentMessage(cleanReply), true);
 
-    chatHistory.push({ role: "ai", content: reply });
+    chatHistory.push({ role: "ai", content: displayReply });
 
     parseGrantsFromReply(reply);
 
