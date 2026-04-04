@@ -12,8 +12,7 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.prompts import ChatPromptTemplate
 from langchain.agents import create_tool_calling_agent
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain.tools import tool
@@ -72,42 +71,60 @@ def get_grant_details(opportunity_id: str) -> str:
         return f"Error fetching details: {str(e)}"
 
 @tool("score_grant_match")
-def score_grant_match(input_query: str) -> str:
-    """Calculate a match score (0-100) by comparing a user profile to a grant description."""
-    scoring_prompt = f"Evaluate this grant match based on this information: {input_query}"
+def score_grant_match(grant_description: str, user_profile: str, project_needs: str) -> str:
+    """Calculate a match score (0-100) by comparing a user profile and project needs to a grant description."""
+    scoring_prompt = (
+        f"Grant: {grant_description}\n"
+        f"User Profile: {user_profile}\n"
+        f"Project: {project_needs}\n"
+        "Evaluate the match and provide a score out of 100 with a brief reasoning."
+    )
     return llm.invoke(scoring_prompt).content
 
 @tool("generate_and_save_proposal")
-def generate_and_save_proposal(input_query: str) -> str:
+def generate_and_save_proposal(opportunity_id: str, user_profile: str, project_description: str) -> str:
     """Draft a full professional grant proposal for a specific grant and user profile."""
-    proposal_prompt = f"Write a professional grant proposal based on this information: {input_query}"
+    proposal_prompt = (
+        f"Write a professional grant proposal for Grant ID {opportunity_id}.\n"
+        f"Applicant Profile: {user_profile}\n"
+        f"Project Description: {project_description}\n"
+        "Generate a comprehensive proposal."
+    )
     proposal = llm.invoke(proposal_prompt).content
+    # The PROPOSAL tags are critical for the frontend to detect the export trigger
     return f"PROPOSAL_START\n{proposal}\nPROPOSAL_END"
 
-# Fix: Re-initialize the tools list with the named tools
-tools = [search_grants, get_grant_details, score_grant_match, generate_and_save_proposal]
-
-# Create a comprehensive system prompt
+# Create a strong system prompt
 prompt = ChatPromptTemplate.from_messages([
-    ("system", """You are FunderWonder, a premier AI-driven grant strategist. Your mission is to assist researchers and students in navigating the complex landscape of funding opportunities.
+    ("system", """You are FunderWonder, an expert research assistant specializing in finding and securing grant funding.
 
-OPERATIONAL PROTOCOLS:
-1. SEARCH: Use `search_grants` to identify opportunities. Always verify keywords with the user's research description.
-2. ANALYZE: For any grant of interest, use `get_grant_details` to retrieve eligibility and synopsis data.
-3. SCORE: Use `score_grant_match` to provide a quantitative alignment analysis (0-100) between the user's profile and the grant requirements. Provide a brief justification for the score.
-4. DRAFT: Only use `generate_and_save_proposal` when a user confirms they want a full draft for a specific grant ID.
+You have access to the following tools:
+1. search_grants(keywords): Use this to find grant opportunities.
+2. get_grant_details(opportunity_id): Use this to get the full text of a specific grant.
+3. score_grant_match(grant_description, user_profile, project_needs): Use this to see if a grant fits the user.
+4. generate_and_save_proposal(opportunity_id, user_profile, project_description): Use this to draft the final proposal.
 
-FORMATTING:
-When listing search results, you MUST append them to the end of your response in this EXACT format for the UI:
+Workflow:
+- Phase 1 (Discovery): Use `search_grants`. Always list results using the format: ID: [id] | Number: [number] | Title: [title] at the end of your message.
+- Phase 2 (Evaluation): If the user asks about a fit, get the details via `get_grant_details`, then use `score_grant_match`.
+- Phase 3 (Proposal): Use `generate_and_save_proposal`. The system will automatically detect the PROPOSAL_START and PROPOSAL_END tags to save it to Google Docs.
+     
+Whenever you find grants, you MUST append them to the very bottom of your response in this EXACT format for the UI:
 ID: [id] | Number: [number] | Title: [title]"""),
-    MessagesPlaceholder(variable_name="chat_history"),
     ("human", "{input}"),
     ("placeholder", "{agent_scratchpad}"),
 ])
 
-# Re-initialize the agent and executor
+tools = [
+    search_grants, 
+    get_grant_details, 
+    score_grant_match, 
+    generate_and_save_proposal
+]
+
+# Use the native tool-calling agent
 agent = create_tool_calling_agent(llm, tools, prompt)
-executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
+executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
 app = FastAPI()
 
@@ -179,27 +196,13 @@ async def callback(request: Request):
 @app.post("/chat")
 def chat(req: ChatRequest):
     try:
-        # Convert simple list of dicts into proper LangChain message objects
-        lc_history = []
-        # We take all messages except the very last one to use as context
-        for m in req.history[:-1]:
-            if m["role"] in ["user", "human"]:
-                lc_history.append(HumanMessage(content=m["content"]))
-            else:
-                lc_history.append(AIMessage(content=m["content"]))
-        
-        # The last message in the history is the current user input
-        last_user_msg = req.history[-1]["content"]
+        last_user_msg = next((m["content"] for m in reversed(req.history) if m["role"] in ["user", "human"]), "")
+        history_str = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in req.history[:-1]])
+        full_input = f"{history_str}\nHUMAN: {last_user_msg}" if history_str else last_user_msg
 
-        # Pass the structured history and the new input to the executor
-        response = executor.invoke({
-            "input": last_user_msg,
-            "chat_history": lc_history
-        })
-        
+        response = executor.invoke({"input": full_input})
         return {"response": response.get("output", "I couldn't process that.")}
     except Exception as e:
-        print(f"Chat Error: {str(e)}") # Log for Render debugging
         return {"error": str(e)}
 
 class ExportRequest(BaseModel):
