@@ -686,7 +686,12 @@ async function callAgent(text) {
     }
 
     const cleanReply = stripGrantLines(displayReply);
-    addMessage('agent', renderAgentMessage(cleanReply), true);
+
+    const messageToShow = cleanReply.trim() === "" 
+        ? "I found several matches for you! You can see them in the sidebar on the left. Click one to learn more or generate a proposal." 
+        : renderAgentMessage(cleanReply);
+
+    addMessage('agent', messageToShow, true);
 
     chatHistory.push({ role: "ai", content: displayReply });
 

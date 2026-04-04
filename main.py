@@ -124,7 +124,7 @@ tools = [
 
 # Use the native tool-calling agent
 agent = create_tool_calling_agent(llm, tools, prompt)
-executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+executor = AgentExecutor(agent=agent, tools=tools, verbose=False)
 
 app = FastAPI()
 
@@ -180,14 +180,14 @@ async def callback(request: Request):
     if code_verifier:
         flow.code_verifier = code_verifier
         
-    # Now fetch the token (Google will be happy because we provided the verifier!)
+    # Now fetch the token
     flow.fetch_token(authorization_response=str(request.url))
     creds = flow.credentials
     
     return responses.HTMLResponse(content=f"""
         <html>
             <script>
-                localStorage.setItem('gdocs_token', JSON.stringify({creds.to_json()}));
+                localStorage.setItem('gdocs_token', `{creds.to_json()}`); 
                 window.location.href = '/';
             </script>
         </html>
