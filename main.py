@@ -12,6 +12,8 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain.agents import create_tool_calling_agent
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain.tools import tool
 from langchain_community.tools.tavily_search import TavilySearchResults
@@ -82,9 +84,22 @@ def generate_and_save_proposal(input_query: str) -> str:
     return f"PROPOSAL_START\n{proposal}\nPROPOSAL_END"
 
 tools = [search_grants, get_grant_details, score_grant_match, generate_and_save_proposal]
-prompt = hub.pull("hwchase17/react")
-agent = create_react_agent(llm, tools, prompt)
-executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
+# Create a strong system prompt to enforce tool usage
+prompt = ChatPromptTemplate.from_messages([
+    ("system", """You are FunderWonder, an expert grant-finding AI assistant. You have access to real-time tools. 
+You MUST use the `search_grants` tool to find grants. 
+
+Whenever you find grants, you MUST append them to the very bottom of your response in this EXACT format, with each grant on a new line:
+ID: [id] | Number: [number] | Title: [title]
+
+Do not change this format, as the frontend system relies on it to update the sidebar UI."""),
+    ("human", "{input}"),
+    ("placeholder", "{agent_scratchpad}"),
+])
+
+# Use the native tool-calling agent instead of the ReAct agent
+agent = create_tool_calling_agent(llm, tools, prompt)
+executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
 app = FastAPI()
 

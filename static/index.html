@@ -722,15 +722,15 @@ function parseGrantsFromReply(text) {
   if (matches.length === 0) return;
 
   const list = document.getElementById('grant-list');
-  const ph   = list.querySelector('.grant-placeholder');
-  if (ph) ph.remove();
+  
+  // Clear the sidebar of old grants
+  list.innerHTML = '';
 
   matches.forEach(m => {
     const grantId = m[1].trim();
     const title   = m[2].trim().replace(/<[^>]+>/g, '');
 
     if (!title || title.length < 3) return;
-    if (list.querySelector(`[data-grant-id="${grantId}"]`)) return;
 
     const card = document.createElement('div');
     card.className       = 'grant-card';
