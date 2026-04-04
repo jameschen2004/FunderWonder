@@ -2,6 +2,7 @@ fastapi
 uvicorn
 gunicorn
 langchain>=0.3.0
+langchain-classic
 langchain-community
 langchain-google-genai
 langchain-experimental

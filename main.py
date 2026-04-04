@@ -15,11 +15,9 @@ from google.oauth2.credentials import Credentials
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain.agents import create_agent
+from langchain_classic.agents import AgentExecutor, create_tool_calling_agent
 from langchain.tools import tool
 from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain import hub
 
 
 os.environ["GOOGLE_API_KEY"] = os.environ.get("GOOGLE_API_KEY", "")
