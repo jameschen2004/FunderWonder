@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Dict
 from google_auth_oauthlib.flow import Flow
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 
@@ -150,7 +151,7 @@ async def auth_google():
     )
     
     # This generates the URL, the state, and the PKCE code_verifier
-    authorization_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true')
+    authorization_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true', prompt='consent')
     
     response = responses.RedirectResponse(authorization_url)
     
@@ -215,6 +216,11 @@ def export_to_docs(req: ExportRequest):
         # Load the user's saved Google credentials
         creds_data = json.loads(req.token_json)
         creds = Credentials.from_authorized_user_info(creds_data, SCOPES)
+
+        if not creds.valid:
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+
         docs_service = build('docs', 'v1', credentials=creds)
 
         # Create a blank document
