@@ -657,13 +657,14 @@ async function callAgent(text) {
 
     // Check if the AI generated a proposal
     if (reply.includes("PROPOSAL_START")) {
-      const proposalText = reply.split("PROPOSAL_START")[1].split("PROPOSAL_END")[0].trim();
+      // Split the reply into parts: [text before, proposal text, text after]
+      const parts = reply.split(/PROPOSAL_START|PROPOSAL_END/);
+      const proposalText = parts[1] ? parts[1].trim() : "";
       const token = localStorage.getItem('gdocs_token');
       
       if (token) {
         addSysMsg("⏳ Exporting your proposal to Google Docs...");
         
-        // Call the backend to create the Doc
         fetch(apiBase() + '/export-to-docs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -674,16 +675,24 @@ async function callAgent(text) {
           if (data.url) {
             addMessage('agent', `✅ Successfully exported! <br><br> <a href="${data.url}" target="_blank">📄 Open your Google Doc</a>`, true);
           } else {
-            console.error("Export Error:", data.error); 
             addSysMsg("⚠️ Error: " + (data.error || "Unknown export error."));
           }
         });
       } else {
-        addSysMsg("⚠️ Google Docs not connected. You can copy the text above manually.");
+        addSysMsg("⚠️ Google Docs not connected. Connect your account in the profile step.");
       }
       
-      // Remove the tags so it looks clean in the chat
-      displayReply = reply.replace("PROPOSAL_START", "").replace("PROPOSAL_END", "").trim();
+      // Update displayReply to only show text OUTSIDE the proposal block
+      const textBefore = parts[0] ? parts[0].trim() : "";
+      const textAfter = parts[2] ? parts[2].trim() : "";
+      
+      // Combine the parts, leaving out the massive proposalText
+      displayReply = (textBefore + " " + textAfter).trim();
+
+      // If the agent ONLY sent the proposal, provide a generic success message
+      if (!displayReply) {
+        displayReply = "I've finished drafting your proposal! You can review the full text in the Google Doc link above.";
+      }
     }
 
     const cleanReply = stripGrantLines(displayReply);

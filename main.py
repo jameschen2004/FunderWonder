@@ -107,7 +107,8 @@ You have access to the following tools:
 Workflow:
 - Phase 1 (Discovery): Use `search_grants`. Always list results using the format: ID: [id] | Number: [number] | Title: [title] at the end of your message.
 - Phase 2 (Evaluation): If the user asks about a fit, get the details via `get_grant_details`, then use `score_grant_match`.
-- Phase 3 (Proposal): Use `generate_and_save_proposal`. To successfully save to Google Docs, your final response MUST contain the output of the tool, including the PROPOSAL_START and PROPOSAL_END tags.
+- Phase 3 (Proposal): Use `generate_and_save_proposal`. To successfully save to Google Docs, your final response MUST contain the output of the tool, including the PROPOSAL_START and PROPOSAL_END tags. Do not repeat the full text of the proposal outside of these tags. Keep your 
+conversational response brief, as the full content will be handled by the export system.
      
 Whenever you find grants, you MUST append them to the very bottom of your response in this EXACT format for the UI:
 ID: [id] | Number: [number] | Title: [title]"""),
