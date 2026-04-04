@@ -1,9 +1,9 @@
 fastapi
 uvicorn
 gunicorn
-langchain
+langchain<0.3.0
+langchain-community<0.3.0
 langchain-google-genai
-langchain-community
 langchain-experimental
 langchainhub
 tavily-python
