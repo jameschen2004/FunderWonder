@@ -33,7 +33,9 @@ HEADERS = {
 
 SCOPES = ['https://www.googleapis.com/auth/documents', 'https://www.googleapis.com/auth/drive.file']
 
-@tool("search_grants")
+# --- TOOLS ---
+
+@tool
 def search_grants(keywords: str) -> str:
     """Search for open and forecasted grants on Grants.gov using keywords."""
     url = "https://api.grants.gov/v1/api/search2"
@@ -50,7 +52,7 @@ def search_grants(keywords: str) -> str:
     except Exception as e:
         return f"Error searching grants: {str(e)}"
 
-@tool("get_grant_details")
+@tool
 def get_grant_details(opportunity_id: str) -> str:
     """Fetch the full description and eligibility details for a specific grant ID."""
     clean_id = str(opportunity_id).replace("ID:", "").strip()
@@ -70,23 +72,26 @@ def get_grant_details(opportunity_id: str) -> str:
     except Exception as e:
         return f"Error fetching details: {str(e)}"
 
-@tool("score_grant_match")
+@tool
 def score_grant_match(input_query: str) -> str:
     """Calculate a match score (0-100) by comparing a user profile to a grant description."""
     scoring_prompt = f"Evaluate this grant match based on this information: {input_query}"
     return llm.invoke(scoring_prompt).content
 
-@tool("generate_and_save_proposal")
+@tool
 def generate_and_save_proposal(input_query: str) -> str:
     """Draft a full professional grant proposal for a specific grant and user profile."""
     proposal_prompt = f"Write a professional grant proposal based on this information: {input_query}"
     proposal = llm.invoke(proposal_prompt).content
     return f"PROPOSAL_START\n{proposal}\nPROPOSAL_END"
 
-# Fix: Re-initialize the tools list with the named tools
+# --- AGENT SETUP ---
+
 tools = [search_grants, get_grant_details, score_grant_match, generate_and_save_proposal]
 
-# Create a strong system prompt
+# We bind the tools directly to the LLM for Gemini 2.0 compatibility
+llm_with_tools = llm.bind_tools(tools)
+
 prompt = ChatPromptTemplate.from_messages([
     ("system", """You are FunderWonder, an expert grant-finding AI assistant.
 You MUST use the search_grants tool to find real-time data. 
@@ -97,9 +102,9 @@ ID: [id] | Number: [number] | Title: [title]"""),
     ("placeholder", "{agent_scratchpad}"),
 ])
 
-# Use the native tool-calling agent
-agent = create_tool_calling_agent(llm, tools, prompt)
-executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+# Define the agent with the bound LLM
+agent = create_tool_calling_agent(llm_with_tools, tools, prompt)
+executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
 
 app = FastAPI()
 
