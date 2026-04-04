@@ -101,16 +101,6 @@
 
   .step-sep { width: 28px; height: 1px; background: var(--border); flex-shrink: 0; }
 
-  .api-bar { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-  .api-bar label { font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; }
-  .api-bar input {
-    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
-    color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.72rem;
-    padding: 5px 10px; width: 240px; outline: none; transition: border-color 0.2s;
-  }
-  .api-bar input:focus { border-color: var(--green); }
-  .api-bar input::placeholder { color: var(--text-muted); }
-
   /* ── Main layout ── */
   main { display: flex; flex: 1; overflow: hidden; }
 
@@ -167,7 +157,6 @@
 
   .grant-card .grant-meta { font-size: 0.71rem; color: var(--text-muted); }
 
-  /* Generate Proposal button — always visible inside card */
   .btn-gen-proposal {
     margin-top: 10px;
     width: 100%;
@@ -181,7 +170,7 @@
     font-weight: 600;
     cursor: pointer;
     transition: opacity 0.2s;
-    display: none; /* shown on hover/selected via CSS */
+    display: none;
   }
 
   .grant-card:hover    .btn-gen-proposal,
@@ -320,7 +309,6 @@
   .msg-bubble a { color: var(--green-light); }
   .msg-bubble a:hover { color: var(--lilac-light); }
 
-  /* typing indicator */
   .typing { display: flex; gap: 4px; align-items: center; padding: 4px 0; }
   .typing span {
     width: 6px; height: 6px; border-radius: 50%;
@@ -334,7 +322,6 @@
     50%       { transform: translateY(-5px); opacity: 1;   }
   }
 
-  /* ── Step 2 proposal nudge bar (always visible in step 2) ── */
   .nudge-bar {
     margin: 0 20px 12px;
     background: rgba(182,159,212,0.08);
@@ -348,7 +335,6 @@
   }
   .nudge-bar strong { color: var(--lilac-light); }
 
-  /* ── Step 3 CTA bar ── */
   .step3-cta {
     margin: 0 20px 14px;
     background: linear-gradient(135deg, rgba(61,153,112,0.12), rgba(182,159,212,0.12));
@@ -365,7 +351,6 @@
   .step3-cta p { font-size: 0.82rem; color: var(--text-muted); }
   .step3-cta strong { color: var(--lilac-light); }
 
-  /* ── Input bar ── */
   .input-bar {
     padding: 14px 20px;
     border-top: 1px solid var(--border);
@@ -431,11 +416,6 @@
     <div class="step" id="step-3">
       <div class="step-num">3</div>Generate Proposal
     </div>
-  </div>
-
-  <div class="api-bar">
-    <label for="api-url">API URL</label>
-    <input id="api-url" type="text" placeholder="https://xxxx.trycloudflare.com" />
   </div>
 </header>
 
@@ -517,14 +497,12 @@
     <div id="step23-panel" class="panel">
       <div id="messages"></div>
 
-      <!-- Nudge shown in step 2 to remind user about the sidebar -->
       <div class="nudge-bar" id="nudge-bar">
         ← <strong>Select a grant</strong> from the sidebar to discuss it, or click <strong>✦ Generate Proposal</strong> on any card to go straight to drafting.
       </div>
 
-      <!-- Step 3 CTA (shown after a grant is selected for proposal) -->
       <div class="step3-cta" id="step3-cta">
-        <p>Ready to submit? <strong>Generate your proposal</strong> and export to Google Docs.</p>
+        <p>Ready to submit? <strong>Generate your proposal</strong> below.</p>
         <button class="btn-primary" onclick="generateProposal()">Generate Proposal ✦</button>
       </div>
 
@@ -542,14 +520,15 @@
 
 <script>
 // ── State ──
-let currentStep = 1;
-let userProfile = {};
+let currentStep  = 1;
+let userProfile  = {};
 let selectedGrant = null;
-let isLoading = false;
-let chatHistory = [];
+let isLoading    = false;
+let chatHistory  = [];
 
+// Same-origin: no URL needed since index.html is served by FastAPI itself
 function apiBase() {
-  return document.getElementById('api-url').value.trim().replace(/\/$/, '');
+  return '';
 }
 
 // ── Step manager ──
@@ -568,10 +547,8 @@ function setStep(n) {
     if (i > n)   { num.textContent = i; }
   });
 
-  // nudge bar: visible in step 2 only
-  document.getElementById('nudge-bar').style.display  = n === 2 ? 'block' : 'none';
-  // CTA bar: visible in step 3 only
-  document.getElementById('step3-cta').style.display  = n === 3 ? 'flex'  : 'none';
+  document.getElementById('nudge-bar').style.display = n === 2 ? 'block' : 'none';
+  document.getElementById('step3-cta').style.display = n === 3 ? 'flex'  : 'none';
 
   const placeholders = {
     2: "Select a grant on the left, or ask me anything about the results…",
@@ -649,15 +626,13 @@ async function callAgent(text) {
   document.getElementById('send-btn').disabled = true;
   const typingId = addTyping();
 
-  // 1. Add the user's message to the history array
   chatHistory.push({ role: "human", content: text });
 
   try {
     const res = await fetch(apiBase() + '/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // 2. Send the entire history instead of just a single message
-      body: JSON.stringify({ history: chatHistory }) 
+      body: JSON.stringify({ history: chatHistory })
     });
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -666,46 +641,37 @@ async function callAgent(text) {
 
     removeTyping(typingId);
 
-    // Strip the raw grant list lines from the chat reply before displaying
     const cleanReply = stripGrantLines(reply);
     addMessage('agent', renderAgentMessage(cleanReply), true);
 
-    // 3. Add the agent's response to the history array
     chatHistory.push({ role: "ai", content: reply });
 
-    // Parse grants from full reply (before stripping) and populate sidebar
     parseGrantsFromReply(reply);
-
-    // Auto-advance to step 3 when a Google Doc link appears
-    if (reply.includes('docs.google.com') && currentStep < 3) setStep(3);
 
   } catch (err) {
     removeTyping(typingId);
     addMessage('agent',
-      `⚠️ Could not reach the API. Check your Cloudflare URL and make sure the Colab cell is still running.\n\n\`${err.message}\``
+      `⚠️ Could not reach the API. Make sure the server is running.\n\n\`${err.message}\``
     );
-    // Optional: remove the user's message from history if the request failed
-    chatHistory.pop(); 
+    chatHistory.pop();
   }
 
   isLoading = false;
   document.getElementById('send-btn').disabled = false;
 }
 
-// ── Strip raw "ID: ... | Title: ..." lines from chat display ──
-// The grants go to the sidebar; the chat only shows the conversational parts.
+// ── Strip raw grant list lines from chat display ──
 function stripGrantLines(text) {
   return text
     .split('\n')
     .filter(line => !line.match(/^ID:\s*\d+\s*\|/i))
     .join('\n')
-    .replace(/\n{3,}/g, '\n\n')  // collapse excess blank lines
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
-// ── KEY FIX: parse the agent's "ID: 123 | Number: X | Title: Y" format ──
+// ── Parse grants into sidebar ──
 function parseGrantsFromReply(text) {
-  // Match lines like: ID: 353936 | Number: 24-569 | Title: Mathematical Foundations…
   const pattern = /ID:\s*(\d+)\s*\|[^|]*\|\s*Title:\s*(.+?)(?:\s*\|.*)?$/gim;
   const matches = [...text.matchAll(pattern)];
 
@@ -720,13 +686,12 @@ function parseGrantsFromReply(text) {
     const title   = m[2].trim().replace(/<[^>]+>/g, '');
 
     if (!title || title.length < 3) return;
-    // Avoid duplicates
     if (list.querySelector(`[data-grant-id="${grantId}"]`)) return;
 
     const card = document.createElement('div');
-    card.className          = 'grant-card';
-    card.dataset.grantId    = grantId;
-    card.dataset.title      = title;
+    card.className       = 'grant-card';
+    card.dataset.grantId = grantId;
+    card.dataset.title   = title;
 
     card.innerHTML = `
       <div class="grant-id">ID: ${grantId}</div>
@@ -744,7 +709,6 @@ function parseGrantsFromReply(text) {
       card.classList.add('selected');
       selectedGrant = { id: card.dataset.grantId, title: card.dataset.title };
 
-      // Ask agent about this specific grant
       const q = `Tell me more about grant ID ${card.dataset.grantId}: "${card.dataset.title}". Is it a good fit for my profile?`;
       addMessage('user', q);
       callAgent(q);
@@ -754,17 +718,14 @@ function parseGrantsFromReply(text) {
   });
 }
 
-// ── Generate Proposal ──
+// ── Generate Proposal (from CTA bar) ──
 async function generateProposal() {
   if (isLoading) return;
 
   if (!selectedGrant) {
-    addSysMsg('💡 Select a grant from the sidebar first, or I\'ll use the best match for your profile.');
+    addSysMsg('💡 Select a grant from the sidebar first.');
+    return;
   }
-
-  const grantRef = selectedGrant
-    ? `grant ID ${selectedGrant.id} — ${selectedGrant.title}`
-    : 'the most relevant grant you found for my profile';
 
   const profileText =
     `Email: ${userProfile.email}\n` +
@@ -774,7 +735,7 @@ async function generateProposal() {
     `Research: ${userProfile.research}`;
 
   const msg =
-    `Please generate a full grant proposal and save it as a Google Doc for ${grantRef}.\n\nMy profile:\n${profileText}`;
+    `Please generate a full grant proposal for grant ID ${selectedGrant.id} — ${selectedGrant.title}.\n\nMy profile:\n${profileText}`;
 
   addMessage('user', msg);
   await callAgent(msg);
@@ -796,7 +757,7 @@ function selectAndGenerate(title, id) {
     `Status: ${userProfile.status}\n` +
     `Research: ${userProfile.research}`;
 
-  const msg = `I want to apply for grant ID ${id} (${title}). Please generate a full proposal and save it as a Google Doc.\n\nMy profile:\n${profileText}`;
+  const msg = `I want to apply for grant ID ${id} (${title}). Please generate a full proposal.\n\nMy profile:\n${profileText}`;
 
   addMessage('user', msg);
   callAgent(msg);
@@ -839,7 +800,7 @@ function addMessage(role, html, isHtml = false) {
 }
 
 function addTyping() {
-  const id  = 'typing-' + (++typingCounter);
+  const id   = 'typing-' + (++typingCounter);
   const msgs = document.getElementById('messages');
   const div  = document.createElement('div');
   div.className = 'msg agent';

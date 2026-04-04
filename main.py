@@ -1,0 +1,149 @@
+import os
+import requests
+import json
+from fastapi import FastAPI
+from fastapi import Request, responses
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from typing import List, Dict
+from google_auth_oauthlib.flow import Flow
+
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.agents import create_react_agent, AgentExecutor
+from langchain.tools import tool
+from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain import hub
+
+
+os.environ["GOOGLE_API_KEY"] = os.environ.get("GOOGLE_API_KEY", "")
+os.environ["TAVILY_API_KEY"] = os.environ.get("TAVILY_API_KEY", "")
+GCP_JSON = os.environ.get("GCP_CREDENTIALS")
+
+llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash")
+tavily_search = TavilySearchResults(max_results=3)
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+}
+
+SCOPES = ['https://www.googleapis.com/auth/documents', 'https://www.googleapis.com/auth/drive.file']
+
+@tool
+def search_grants(keywords: str) -> str:
+    """Searches Grants.gov for open and forecasted grants."""
+    url = "https://api.grants.gov/v1/api/search2"
+    payload = {"keyword": keywords, "oppStatuses": "posted", "rows": 10}
+    try:
+        response = requests.post(url, json=payload, headers=HEADERS)
+        if response.status_code == 200:
+            opportunities = response.json().get("data", {}).get("oppHits") or []
+            output = ""
+            for opp in opportunities:
+                output += f"ID: {opp.get('id')} | Number: {opp.get('number')} | Title: {opp.get('title')}\n"
+            return output if output else "No grants found for these keywords."
+        return f"Error: Received status code {response.status_code}"
+    except Exception as e:
+        return f"Error searching grants: {str(e)}"
+
+@tool
+def get_grant_details(opportunity_id: str) -> str:
+    """Fetches full description/synopsis for a specific grant ID."""
+    clean_id = str(opportunity_id).replace("ID:", "").strip()
+    url = "https://api.grants.gov/v1/api/fetchOpportunity"
+    try:
+        response = requests.post(url, json={"opportunityId": clean_id}, headers=HEADERS)
+        if response.status_code == 200:
+            data = response.json().get("data", {})
+            synopsis = data.get("synopsis")
+            if synopsis:
+                desc = synopsis.get("synopsisExplanation") or synopsis.get("synopsisDesc")
+                if desc: return f"Official Synopsis: {desc}"
+            
+            web_results = tavily_search.invoke({"query": f"Grants.gov {clean_id} description eligibility"})
+            return f"Web Search Fallback: {web_results}"
+        return f"Error: Could not fetch details for ID {clean_id}."
+    except Exception as e:
+        return f"Error fetching details: {str(e)}"
+
+@tool
+def score_grant_match(grant_description: str, user_profile: str, project_needs: str) -> str:
+    """Calculates a FunderWonder Match Score (0-100)."""
+    scoring_prompt = f"Evaluate this grant match for profile: {user_profile} and needs: {project_needs}. Grant: {grant_description}"
+    return llm.invoke(scoring_prompt).content
+
+@tool
+def generate_and_save_proposal(opportunity_id: str, user_profile: str, project_description: str) -> str:
+    """Generates a full grant proposal draft. Google Docs export is handled via the frontend token."""
+    grant_details = get_grant_details.invoke(opportunity_id)
+    proposal_prompt = f"Write a professional grant proposal for: {user_profile}. Project: {project_description}. Grant: {grant_details}"
+    proposal = llm.invoke(proposal_prompt).content
+    return f"PROPOSAL_START\n{proposal}\nPROPOSAL_END"
+
+tools = [search_grants, get_grant_details, score_grant_match, generate_and_save_proposal]
+prompt = hub.pull("hwchase17/react")
+agent = create_react_agent(llm, tools, prompt)
+executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class ChatRequest(BaseModel):
+    history: List[Dict]
+
+@app.get("/auth/google")
+async def auth_google():
+    if not GCP_JSON:
+        return {"error": "GCP_CREDENTIALS not set on server"}
+    client_config = json.loads(GCP_JSON)
+    flow = Flow.from_client_config(
+        client_config,
+        scopes=SCOPES,
+        redirect_uri="https://funderwonder.onrender.com/callback"
+    )
+    authorization_url, _ = flow.authorization_url(access_type='offline', include_granted_scopes='true')
+    return responses.RedirectResponse(authorization_url)
+
+@app.get("/callback")
+async def callback(request: Request):
+    client_config = json.loads(GCP_JSON)
+    flow = Flow.from_client_config(
+        client_config,
+        scopes=SCOPES,
+        redirect_uri="https://funderwonder.onrender.com/callback"
+    )
+    flow.fetch_token(authorization_response=str(request.url))
+    creds = flow.credentials
+    
+    return responses.HTMLResponse(content=f"""
+        <html>
+            <script>
+                localStorage.setItem('gdocs_token', JSON.stringify({creds.to_json()}));
+                window.location.href = '/';
+            </script>
+        </html>
+    """)
+
+@app.post("/chat")
+def chat(req: ChatRequest):
+    try:
+        last_user_msg = next((m["content"] for m in reversed(req.history) if m["role"] in ["user", "human"]), "")
+        history_str = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in req.history[:-1]])
+        full_input = f"{history_str}\nHUMAN: {last_user_msg}" if history_str else last_user_msg
+
+        response = executor.invoke({"input": full_input})
+        return {"response": response.get("output", "I couldn't process that.")}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+app.mount("/", StaticFiles(directory="static", html=True), name="static")

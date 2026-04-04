@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+gunicorn
+langchain
+langchain-google-genai
+langchain-community
+langchain-experimental
+langchainhub
+tavily-python
+requests
+python-dotenv
+google-auth-oauthlib
+google-api-python-client
